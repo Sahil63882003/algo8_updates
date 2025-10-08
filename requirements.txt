@@ -1,4 +1,5 @@
-streamlit==1.25.0
-pandas==2.0.3
-openpyxl==3.1.2
-pydrive2==1.15.0
+streamlit==1.39.0
+pandas==2.2.3
+numpy==1.26.4
+plotly==5.24.1
+xlsxwriter==3.2.0
