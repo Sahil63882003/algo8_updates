@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from collections import deque
-from openpyxl import Workbook
 import io
 import time
 import uuid
@@ -838,95 +837,7 @@ def run():
                                 df_strike_details.to_excel(writer, sheet_name="Strike Price Details", index=False)
                                 df_dict1.to_excel(writer, sheet_name="Dict1 Realized PNL", index=False)
                             output_additional_excel.seek(0)
-                            
-                            # MAX LOSS CALCULATION REPORT FOR A8
-                            
-                            # === CORRECTED: Use df_final (aggregated carry-forward) for Net Qty & Price ===
-                            df_1_data = df_final.copy()  # ← This has Total_Quantity and Weighted_Avg_Price
-                            df_2_data = not_noren_data_pos.copy()  # Already correct
-                            df3_data = pd.DataFrame(columns=df_2_data.columns)
 
-                            # Map from aggregated data
-                            df3_data["Symbol"] = df_1_data["Strike_Name"]
-                            df3_data["Net Qty"] = df_1_data["Total_Quantity"]  # ← Now exists!
-                            df3_data["Carry Fwd Qty"] = df_1_data["Total_Quantity"]
-                            df3_data["Unrealized Profit"] = df_1_data.get("Unrealized Profit", np.nan)
-                            df3_data["UserID"] = df_1_data["User ID"]
-                            df3_data["Close Price"] = df_1_data.get("SETTLEMENT", df_1_data.get("Close Price"))
-                            df3_data["Calculated_Unrealized_PNL"] = df_1_data["Calculated_Unrealized_PNL"]
-                            df3_data["Weighted_Avg_Price"] = df_1_data["Weighted_Avg_Price"]
-                            df3_data["Original_Symbol"] = df_1_data["Strike_Name"]
-                            df3_data["Buy Avg Price"] = df_1_data["Weighted_Avg_Price"]
-
-                            # Buy/Sell Qty logic
-                            df3_data['Buy Qty'] = np.where(df3_data['Net Qty'] > 0, df3_data['Net Qty'], 0)
-                            df3_data['Sell Qty'] = np.where(df3_data['Net Qty'] < 0, abs(df3_data['Net Qty']), 0)
-
-                            # Avg prices
-                            df3_data['Buy Avg Price'] = np.where(df3_data['Net Qty'] > 0, df3_data['Weighted_Avg_Price'], np.nan)
-                            df3_data['Sell Avg Price'] = np.where(df3_data['Net Qty'] < 0, df3_data['Weighted_Avg_Price'], np.nan)
-                            df3_data["Sell Qty"] = -df3_data["Sell Qty"]  # Make sell qty negative?
-
-                            # Concatenate (though df_2_data is same as df_1_data — consider simplifying)
-                            df3_data = pd.concat([df_2_data, df3_data], ignore_index=True)
-
-                            # Drop duplicates and unnecessary columns
-                            df3_data = df3_data.drop(columns=["Weighted_Avg_Price", "Original_Symbol", "Strike_Name", "Calculated_Realized_PNL"], errors="ignore")
-                            df3_data.rename(columns={'Calculated_Unrealized_PNL': 'Net Settelment Value'}, inplace=True)
-                            # ---- ALL SHEETS IN ONE FILE (max_loss_buf) ----
-                            max_loss_buf = io.BytesIO()
-
-                            # Use pandas ExcelWriter (xlsxwriter engine) – it can write many DataFrames + openpyxl formulas
-                            with pd.ExcelWriter(max_loss_buf, engine='xlsxwriter') as writer:
-
-                                # 1. Pivot
-                                df_pivot.to_excel(writer, sheet_name="Pivot", index=False)
-
-                                # 2. Calculation (Max-Loss summary)
-                                df_maxloss.to_excel(writer, sheet_name="Calculation", index=False)
-
-                                # 3. Noren UnRealized Data
-                                df_final.to_excel(writer, sheet_name="Noren UnRealized Data", index=False)
-
-                                # 4. BhavCopy
-                                df_bhav.to_excel(writer, sheet_name="BhavCopy", index=False)
-
-                                # 5. VS1 A8 Pos(Calc) – with **live Excel formula**
-                                # First write the data using pandas
-                                df3_data.to_excel(writer, sheet_name="VS1 A8 Pos(Calc)", index=False)
-
-                                # Now get the xlsxwriter worksheet object to inject formulas
-                                workbook  = writer.book
-                                ws_calc   = writer.sheets["VS1 A8 Pos(Calc)"]
-
-                                # ---- Add formula column ----
-                                formula_col_idx = len(df3_data.columns) + 1  # 1-based
-                                ws_calc.write(0, formula_col_idx - 1, "Calculated PNL")  # header (row 0 = Excel row 1)
-
-                                # Helper: convert column index → Excel letter (A, B, ..., Z, AA, ...)
-                                import string
-                                def col_to_letter(idx):  # 1-based
-                                    return ''.join(
-                                        string.ascii_uppercase[(idx-1) // 26 - i] if (idx-1) // (26**(i+1)) else string.ascii_uppercase[(idx-1) % 26]
-                                        for i in range(2)
-                                        if (idx-1) // (26**(i+1))
-                                    ) or string.ascii_uppercase[(idx-1) % 26]
-
-                                # Column letters (1-based)
-                                E = col_to_letter(df3_data.columns.get_loc("Net Qty") + 1)
-                                G = col_to_letter(df3_data.columns.get_loc("Buy Avg Price") + 1)
-                                J = col_to_letter(df3_data.columns.get_loc("Sell Avg Price") + 1)
-                                Q = col_to_letter(df3_data.columns.get_loc("Close Price") + 1)
-
-                                # Write formula in each row (from row 2 onward)
-                                for r in range(2, len(df3_data) + 2):
-                                    formula = f"=IF({E}{r}>0,({Q}{r}-{G}{r})*ABS({E}{r}),({J}{r}-{Q}{r})*ABS({E}{r}))"
-                                    ws_calc.write_formula(r-1, formula_col_idx - 1, formula)  # 0-based
-
-                            # Finalize
-                            max_loss_buf.seek(0)
-                            st.session_state.max_loss_calc_excel = max_loss_buf 
-                                                       
                             # Store in session
                             st.session_state.calculation_done = True
                             st.session_state.df_display = df_display
@@ -1011,16 +922,11 @@ def run():
                 st.markdown('</div>', unsafe_allow_html=True)
 
             # Download Section
-            # ──────────────────────────────────────────────────────────────────────
-            # Download Section (inside the first tab – after the two existing buttons)
-            # ──────────────────────────────────────────────────────────────────────
             with st.container():
                 st.markdown('<div class="section-card">', unsafe_allow_html=True)
                 st.subheader("Download Results")
                 st.markdown('<div class="download-section">', unsafe_allow_html=True)
-
-                col_download1, col_download2, col_download3 = st.columns(3)   # <-- 3 columns now
-
+                col_download1, col_download2 = st.columns(2)
                 with col_download1:
                     st.download_button(
                         label="Download Updated Usersetting CSV",
@@ -1029,7 +935,6 @@ def run():
                         mime='text/csv',
                         key="download_usersetting"
                     )
-
                 with col_download2:
                     st.download_button(
                         label="Download Additional Data XLSX",
@@ -1038,21 +943,6 @@ def run():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="download_additional_excel"
                     )
-
-                # ─────── NEW BUTTON ───────
-                with col_download3:
-                    if 'max_loss_calc_excel' in st.session_state:
-                        st.download_button(
-                            label="Download VS1 A8 Pos(Calc) XLSX",
-                            data=st.session_state.max_loss_calc_excel,
-                            file_name=f"VS1_A8_Pos_Calc_{st.session_state.expiry_str}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="download_max_loss_calc"
-                        )
-                    else:
-                        st.caption("Run the calculation first.")
-                # ─────── END NEW BUTTON ───────
-
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1482,3 +1372,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+
